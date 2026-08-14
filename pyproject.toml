@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "persistent-laplacian-methods"
+version = "0.1.0"
+description = "Methods for constructing persistent up-Laplacians"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "scipy",
+]
+
+[tool.setuptools]
+package-dir = {"" = "python"}
