@@ -1,5 +1,7 @@
 import numpy as np
 import scipy.linalg as la
+from contextlib import contextmanager
+from time import perf_counter
 
 
 def _dense(block):
@@ -58,6 +60,83 @@ def compute_null_space_D(B_j, n_q_i, n_q1_i, rcond=1e-6):
         L += EZ @ EZ.T
     return L
 
+def compute_null_space_D_profiling(
+    B_j,
+    n_q_i,
+    n_q1_i,
+    rcond=1e-6,
+):
+    """Compute the persistent up-Laplacian using ker(D), with profiling."""
+    timings = {}
+    shapes = {}
+    total_start = perf_counter()
+
+    @contextmanager
+    def measured(label):
+        start = perf_counter()
+        try:
+            yield
+        finally:
+            timings[label] = perf_counter() - start
+
+    def finish(L, exit_reason):
+        timings["total"] = perf_counter() - total_start
+        shapes["L"] = L.shape
+
+        return L, {
+            "timings": timings,
+            "shapes": shapes,
+            "exit_reason": exit_reason,
+        }
+
+    with measured("_blocks"):
+        B_i, E, D = _blocks(B_j, n_q_i, n_q1_i)
+
+    shapes.update({
+        "B_i": B_i.shape,
+        "E": E.shape,
+        "D": D.shape,
+    })
+
+    with measured("B_i @ B_i.T"):
+        L = B_i @ B_i.T
+
+    if E.shape[1] == 0:
+        return finish(L, "E has no columns")
+
+    if D.shape[0] == 0:
+        with measured("E @ E.T"):
+            E_term = E @ E.T
+
+        with measured("add E term"):
+            L += E_term
+
+        return finish(L, "D has no rows")
+
+    with measured("null_space(D)"):
+        Z = la.null_space(
+            D,
+            rcond=rcond,
+            check_finite=False,
+        )
+
+    shapes["Z"] = Z.shape
+
+    if Z.shape[1] == 0:
+        return finish(L, "ker(D) is zero")
+
+    with measured("E @ Z"):
+        EZ = E @ Z
+
+    shapes["EZ"] = EZ.shape
+
+    with measured("EZ @ EZ.T"):
+        null_space_term = EZ @ EZ.T
+
+    with measured("add null-space term"):
+        L += null_space_term
+
+    return finish(L, "full null-space computation")
 
 def compute_reduced_svd_D(B_j, n_q_i, n_q1_i, rcond=1e-6):
     """Compute the persistent up-Laplacian using the row space of D."""
@@ -110,6 +189,91 @@ def compute_schur_D(B_j, n_q_i, n_q1_i, rcond=1e-12):
     L -= (L_IO @ L_OO_pinv) @ L_IO.T
 
     return L
+
+def compute_schur_D_profiling(
+    B_j,
+    n_q_i,
+    n_q1_i,
+    rcond=1e-12
+):
+    """Compute the persistent up-Laplacian by a Schur complement using profiling.
+    """
+    timings = {}
+    total_start = perf_counter()
+
+    @contextmanager
+    def measured(label):
+        start = perf_counter()
+        try:
+            yield
+        finally:
+            timings[label] = perf_counter() - start
+
+    def finish(L, exit_reason):
+        timings["total"] = perf_counter() - total_start
+
+        return L, {
+            "timings": timings,
+            "shapes": shapes,
+            "exit_reason": exit_reason,
+        }
+
+    with measured("_blocks"):
+        B_i, E, D = _blocks(B_j, n_q_i, n_q1_i)
+
+    shapes = {
+        "B_i": B_i.shape,
+        "E": E.shape,
+        "D": D.shape,
+    }
+
+    with measured("B_i @ B_i.T"):
+        L = B_i @ B_i.T
+
+    if E.shape[1] == 0:
+        return finish(L, "E has no columns")
+
+    with measured("E @ E.T"):
+        E_term = E @ E.T
+
+    with measured("add E term"):
+        L += E_term
+
+    del E_term
+
+    if D.shape[0] == 0 or D.shape[1] == 0:
+        return finish(L, "D is empty")
+
+    with measured("E @ D.T"):
+        L_IO = E @ D.T
+
+    with measured("D @ D.T"):
+        L_OO = D @ D.T
+
+    shapes.update({
+        "L_IO": L_IO.shape,
+        "L_OO": L_OO.shape,
+        "L": L.shape,
+    })
+
+    with measured("pinv(L_OO)"):
+        L_OO_pinv = np.linalg.pinv(
+            L_OO,
+            rcond=rcond,
+            hermitian=True,
+        )
+
+    # Split the two products so they receive separate timings.
+    with measured("L_IO @ pinv"):
+        schur_left = L_IO @ L_OO_pinv
+
+    with measured("schur_left @ L_IO.T"):
+        correction = schur_left @ L_IO.T
+
+    with measured("subtract correction"):
+        L -= correction
+
+    return finish(L, "full Schur computation")
 
 
 def compute_schur_D_lstsq(B_j, n_q_i, n_q1_i, rcond=1e-12):
