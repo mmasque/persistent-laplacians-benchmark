@@ -43,6 +43,119 @@ def prepare_up_persistent_laplacian(
 
     return B_j, n_q_i, n_q1_i
 
+def prepare_up_persistent_relative_cochain_laplacian(
+    boundary_matrices,
+    cuts,
+    q,
+    i,
+    j,
+    l,
+):
+    """ the persistent down term in cohomological
+    degree q for
+
+        C^*(K_l, K_j) subset C^*(K_l, K_i).
+
+    The returned matrix is ordered as
+
+        rows:
+            q-cochains in K_l \\ K_j,
+            q-cochains in K_j \\ K_i,
+
+        columns:
+            (q-1)-cochains in K_l \\ K_j,
+            (q-1)-cochains in K_j \\ K_i.
+
+    Hence it has block form
+
+        [[B, E],
+         [0, A]],
+
+    where A is the matrix whose nullspace must be computed.
+
+    Returns
+    -------
+    coboundary : ndarray
+        Reordered matrix of delta_{q-1}^{K_l, K_i}.
+    n_q_relative : int
+        Dimension of C^q(K_l, K_j).
+    n_qm1_relative : int
+        Dimension of C^(q-1)(K_l, K_j).
+    """
+    if not 0 <= i <= j <= l < len(cuts):
+        raise ValueError("Require 0 <= i <= j <= l < len(cuts)")
+
+    max_dim = cuts.shape[1] - 1
+    if not 0 <= q <= max_dim:
+        raise ValueError(f"Require 0 <= q <= {max_dim}")
+
+    n_q_i = int(cuts[i][q])
+    n_q_j = int(cuts[j][q])
+    n_q_l = int(cuts[l][q])
+
+    # V_q = C^q(K_l, K_j)
+    n_q_relative = n_q_l - n_q_j
+
+    # S_q = C^q(K_j, K_i)
+    n_q_middle = n_q_j - n_q_i
+
+    # There is no incoming coboundary in degree zero.
+    if q == 0:
+        coboundary = np.zeros(
+            (n_q_relative + n_q_middle, 0),
+            dtype=np.float64,
+        )
+        return coboundary, n_q_relative, 0
+
+    n_qm1_i = int(cuts[i][q - 1])
+    n_qm1_j = int(cuts[j][q - 1])
+    n_qm1_l = int(cuts[l][q - 1])
+
+    n_qm1_relative = n_qm1_l - n_qm1_j
+    n_qm1_middle = n_qm1_j - n_qm1_i
+
+    # Boundary C_q(K_l) -> C_(q-1)(K_l).
+    Dq = boundary_matrices[q]
+
+    coboundary = np.zeros(
+        (
+            n_q_relative + n_q_middle,
+            n_qm1_relative + n_qm1_middle,
+        ),
+        dtype=np.float64,
+    )
+
+    # B = delta_(q-1) on C^*(K_l, K_j).
+    coboundary[
+        :n_q_relative,
+        :n_qm1_relative,
+    ] = Dq[
+        n_qm1_j:n_qm1_l,
+        n_q_j:n_q_l,
+    ].T
+
+    # E: middle (q-1)-cochains mapping into outer q-cochains.
+    coboundary[
+        :n_q_relative,
+        n_qm1_relative:,
+    ] = Dq[
+        n_qm1_i:n_qm1_j,
+        n_q_j:n_q_l,
+    ].T
+
+    # Lower-left block is zero because K_j is a subcomplex.
+
+    # A = delta_(q-1) on C^*(K_j, K_i).
+    coboundary[
+        n_q_relative:,
+        n_qm1_relative:,
+    ] = Dq[
+        n_qm1_i:n_qm1_j,
+        n_q_i:n_q_j,
+    ].T
+
+    return coboundary, n_q_relative, n_qm1_relative
+
 
 def compute_null_space_D(B_j, n_q_i, n_q1_i, rcond=1e-6):
     """Compute the persistent up-Laplacian using ker(D)."""

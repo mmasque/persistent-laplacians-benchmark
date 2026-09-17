@@ -59,6 +59,7 @@ def boundary_matrices(simplex_tree, dtype=np.int8):
 
     return D, levels, cuts 
 
+
 def picker(cuts, i):
     """Indices selecting each boundary matrix at filtration index i."""
     return {
@@ -81,3 +82,59 @@ def print_boundary_dimensions(D, cuts, i, j):
         shape_j = (int(cuts[j][q - 1]), int(cuts[j][q]))
 
         print(f"D_{q:<6} {str(shape_i):>16} {str(shape_j):>16}")
+
+
+def print_relative_coboundary_dimensions(cuts, i, j, l):
+    """
+    Print relative-coboundary dimensions for
+
+        C^*(K_l, K_j) subset C^*(K_l, K_i).
+
+    Matrix shapes are printed as (rows, columns).
+
+    B_p : C^p(K_l, K_j) -> C^(p+1)(K_l, K_j)
+    E_p : C^p(K_j, K_i) -> C^(p+1)(K_l, K_j)
+    A_p : C^p(K_j, K_i) -> C^(p+1)(K_j, K_i)
+    """
+    if not 0 <= i <= j <= l < len(cuts):
+        raise ValueError("Require 0 <= i <= j <= l < len(cuts)")
+
+    max_dim = cuts.shape[1] - 1
+
+    print(
+        f"{'matrix':<10}"
+        f"{'whole matrix':>18}"
+        f"{'B (outer)':>18}"
+        f"{'E (cross)':>18}"
+        f"{'A (middle)':>18}"
+    )
+
+    for p in range(max_dim + 1):
+        # Source dimensions in cohomological degree p.
+        v_p = int(cuts[l][p] - cuts[j][p])
+        s_p = int(cuts[j][p] - cuts[i][p])
+
+        if p < max_dim:
+            # Target dimensions in degree p + 1.
+            v_p1 = int(cuts[l][p + 1] - cuts[j][p + 1])
+            s_p1 = int(cuts[j][p + 1] - cuts[i][p + 1])
+        else:
+            # The top-dimensional coboundary is zero.
+            v_p1 = 0
+            s_p1 = 0
+
+        whole_shape = (
+            v_p1 + s_p1,
+            v_p + s_p,
+        )
+        B_shape = (v_p1, v_p)
+        E_shape = (v_p1, s_p)
+        A_shape = (s_p1, s_p)
+
+        print(
+            f"delta_{p:<4}"
+            f"{str(whole_shape):>18}"
+            f"{str(B_shape):>18}"
+            f"{str(E_shape):>18}"
+            f"{str(A_shape):>18}"
+        )
